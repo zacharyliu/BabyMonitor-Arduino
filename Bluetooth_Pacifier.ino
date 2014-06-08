@@ -48,6 +48,7 @@ THE SOFTWARE.
 
 #include <SoftwareSerial.h>
 #include "BGLib.h"
+#include "LowPower.h"
 
 // accelerometer includes
 #include <Wire.h> // Must include Wire library for I2C
@@ -164,6 +165,9 @@ void setup() {
     pinMode(7, INPUT);
     pinMode(8, OUTPUT);
     
+    // configure wakeup pin
+    pinMode(2, INPUT_PULLUP);
+    
     accel.init();
     
     timeout = millis() + 1000;
@@ -195,8 +199,21 @@ void loop() {
             digitalWrite(LED_PIN, slice < 100 || (slice > 200 && slice < 300) || (slice > 400 && slice < 500));
         }
     }
+    
+    if (booted) {
+//        sleep();
+    }
 }
 
+void sleep() {
+    attachInterrupt(0, wakeUp, LOW);
+    LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
+}
+
+void wakeUp() {
+    detachInterrupt(0);
+    Serial.println("wakeUp");
+}
 
 void bleReset() {
   digitalWrite(BLE_RESET_PIN, LOW);
@@ -335,7 +352,11 @@ void my_ble_evt_system_boot(const ble_msg_system_boot_evt_t *msg) {
     ble_state = BLE_STATE_ADVERTISING;
     
     booted = true;
-    Serial.println("Ready");
+    Serial.println("Ready, now going to sleep");
+    while(digitalRead(2) == LOW);
+    delay(1000);
+    digitalWrite(LED_PIN, LOW);
+    sleep();
 }
 
 void my_ble_evt_connection_status(const ble_msg_connection_status_evt_t *msg) {
