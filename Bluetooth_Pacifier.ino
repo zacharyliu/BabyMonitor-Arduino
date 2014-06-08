@@ -56,7 +56,7 @@ MMA8452Q accel;
 float accelData[3];
 
 // uncomment the following line for debug serial output
-//#define DEBUG
+#define DEBUG
 
 // ================================================================
 // BLE STATE TRACKING (UNIVERSAL TO JUST ABOUT ANY BLE PROJECT)
@@ -110,9 +110,10 @@ SoftwareSerial bleSerialPort(2, 3);
 BGLib ble112((HardwareSerial *)&bleSerialPort, 0, 1);
 //BGLib ble112((HardwareSerial *)&Serial, 0, 1);
 
-#define BGAPI_GET_RESPONSE(v, dType) dType *v = (dType *)ble112.getLastRXPayload()
+//#define BGAPI_GET_RESPONSE(v, dType) dType *v = (dType *)ble112.getLastRXPayload()
 
 unsigned long timeout;
+boolean booted = false;
 
 // ================================================================
 // ARDUINO APPLICATION SETUP AND LOOP FUNCTIONS
@@ -131,7 +132,7 @@ void setup() {
     // set up internal status handlers (these are technically optional)
     ble112.onBusy = onBusy;
     ble112.onIdle = onIdle;
-    ble112.onTimeout = bleReset; // reset the chip on timeout
+    ble112.onTimeout = onTimeout;
 
     // ONLY enable these if you are using the <wakeup_pin> parameter in your firmware's hardware.xml file
     // BLE module must be woken up before sending any UART data
@@ -164,20 +165,25 @@ void setup() {
     
     accel.init();
     
-    timeout = millis() + 2000;
+    timeout = millis() + 1000;
 }
 
 float reading1;
 float reading2;
 uint16_t slice;
 
+uint8_t status;
+
+uint8 testData12[] = {1,2,3,4,5,6,7,8,9,10,11,12};
+uint8 testData4[] = {1,2,3,4};
+
 // main application loop
 void loop() {
     // keep polling for new data from BLE
     ble112.checkActivity();
     
-    if (millis() > timeout) {
-        timeout += 3000;
+    if (booted && millis() > timeout) {
+        timeout += 1000;
       
         if (accel.available()) {
             // First, use accel.read() to read the new variables:
@@ -187,20 +193,25 @@ void loop() {
             accelData[1] = accel.cy;
             accelData[2] = accel.cz;
     
-            delay(1);
-            ble112.ble_cmd_attributes_write(GATT_HANDLE_ACCELEROMETER, 0, 12, (uint8*) accelData);
-            delay(1);
+            Serial.println("Sending acceleration data");
+            ble112.ble_cmd_attributes_write(GATT_HANDLE_ACCELEROMETER, 0, 12, (uint8*) testData12);
+//            while ((status = ble112.checkActivity(1000)));
+            delay(10);
         }
         
         reading1 = analogRead(ORAL_THERMOMETER_PIN) / 1024.0;
         reading2 = analogRead(SURFACE_THERMOMETER_PIN) / 1024.0;
         
         // write offset is set to 1 to keep preset initial flags byte
-        delay(1);
-        ble112.ble_cmd_attributes_write(GATT_HANDLE_ORAL_THERMOMETER, 0, 4, (uint8*) &reading1);
-        delay(1);
-        ble112.ble_cmd_attributes_write(GATT_HANDLE_SURFACE_THERMOMETER, 0, 4, (uint8*) &reading2);
-        delay(1);
+        Serial.println("Sending oral thermometer data");
+        ble112.ble_cmd_attributes_write(GATT_HANDLE_ORAL_THERMOMETER, 1, 4, (uint8*) testData4);
+//        while ((status = ble112.checkActivity(1000)));
+        delay(10);
+        
+        Serial.println("Sending surface thermometer data");
+        ble112.ble_cmd_attributes_write(GATT_HANDLE_SURFACE_THERMOMETER, 1, 4, (uint8*) testData4);
+//        while ((status = ble112.checkActivity(1000)));
+        delay(10);
     }
     
     
@@ -246,6 +257,10 @@ void onBusy() {
 void onIdle() {
     // turn LED off when we're no longer busy
     //digitalWrite(LED_PIN, LOW);
+}
+
+void onTimeout() {
+    Serial.println("!!!\tTimeout occurred!");
 }
 
 // called immediately before beginning UART TX of a command
@@ -331,18 +346,18 @@ void my_ble_evt_system_boot(const ble_msg_system_boot_evt_t *msg) {
         'M', 'y', ' ', 'A', 'r', 'd', 'u', 'i', 'n', 'o', ' ', '0', '0', ':', '0', '0', ':', '0', '0'
     };
 
-    // get BLE MAC address
-    ble112.ble_cmd_system_address_get();
-    while (ble112.checkActivity(1000)); /// ***** TIMING OUT HERE WITH HARDWARESERIAL? ***** // digitalWrite(LED_PIN, LOW);
-    BGAPI_GET_RESPONSE(r0, ble_msg_system_address_get_rsp_t);
-
-    // assign last three bytes of MAC address to ad packet friendly name (instead of 00:00:00 above)
-    sr_data[13] = (r0 -> address.addr[2] / 0x10) + 48 + ((r0 -> address.addr[2] / 0x10) / 10 * 7); // MAC byte 4 10's digit
-    sr_data[14] = (r0 -> address.addr[2] & 0xF)  + 48 + ((r0 -> address.addr[2] & 0xF ) / 10 * 7); // MAC byte 4 1's digit
-    sr_data[16] = (r0 -> address.addr[1] / 0x10) + 48 + ((r0 -> address.addr[1] / 0x10) / 10 * 7); // MAC byte 5 10's digit
-    sr_data[17] = (r0 -> address.addr[1] & 0xF)  + 48 + ((r0 -> address.addr[1] & 0xF ) / 10 * 7); // MAC byte 5 1's digit
-    sr_data[19] = (r0 -> address.addr[0] / 0x10) + 48 + ((r0 -> address.addr[0] / 0x10) / 10 * 7); // MAC byte 6 10's digit
-    sr_data[20] = (r0 -> address.addr[0] & 0xF)  + 48 + ((r0 -> address.addr[0] & 0xF ) / 10 * 7); // MAC byte 6 1's digit
+//    // get BLE MAC address
+//    ble112.ble_cmd_system_address_get();
+//    while (ble112.checkActivity(1000)); /// ***** TIMING OUT HERE WITH HARDWARESERIAL? ***** // digitalWrite(LED_PIN, LOW);
+//    BGAPI_GET_RESPONSE(r0, ble_msg_system_address_get_rsp_t);
+//
+//    // assign last three bytes of MAC address to ad packet friendly name (instead of 00:00:00 above)
+//    sr_data[13] = (r0 -> address.addr[2] / 0x10) + 48 + ((r0 -> address.addr[2] / 0x10) / 10 * 7); // MAC byte 4 10's digit
+//    sr_data[14] = (r0 -> address.addr[2] & 0xF)  + 48 + ((r0 -> address.addr[2] & 0xF ) / 10 * 7); // MAC byte 4 1's digit
+//    sr_data[16] = (r0 -> address.addr[1] / 0x10) + 48 + ((r0 -> address.addr[1] / 0x10) / 10 * 7); // MAC byte 5 10's digit
+//    sr_data[17] = (r0 -> address.addr[1] & 0xF)  + 48 + ((r0 -> address.addr[1] & 0xF ) / 10 * 7); // MAC byte 5 1's digit
+//    sr_data[19] = (r0 -> address.addr[0] / 0x10) + 48 + ((r0 -> address.addr[0] / 0x10) / 10 * 7); // MAC byte 6 10's digit
+//    sr_data[20] = (r0 -> address.addr[0] & 0xF)  + 48 + ((r0 -> address.addr[0] & 0xF ) / 10 * 7); // MAC byte 6 1's digit
 
     // set custom scan response data (i.e. the Device Name value)
     ble112.ble_cmd_gap_set_adv_data(1, 0x15, sr_data);
@@ -354,6 +369,9 @@ void my_ble_evt_system_boot(const ble_msg_system_boot_evt_t *msg) {
 
     // set state to ADVERTISING
     ble_state = BLE_STATE_ADVERTISING;
+    
+    booted = true;
+    Serial.println("Ready");
 }
 
 void my_ble_evt_connection_status(const ble_msg_connection_status_evt_t *msg) {
@@ -464,6 +482,6 @@ void my_ble_evt_attributes_user_read_request(const struct ble_msg_attributes_use
 }
 
 void my_ble_rsp_attributes_write(const struct ble_msg_attributes_write_rsp_t * msg) {
-//    Serial.print("Write result: ");
-//    Serial.println(msg -> result, HEX);
+    Serial.print("Write result: ");
+    Serial.println(msg -> result, HEX);
 }
