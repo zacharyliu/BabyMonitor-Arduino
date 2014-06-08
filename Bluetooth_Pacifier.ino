@@ -114,6 +114,7 @@ BGLib ble112((HardwareSerial *)&bleSerialPort, 0, 1);
 
 unsigned long timeout;
 boolean booted = false;
+boolean isBusy = false;
 
 // ================================================================
 // ARDUINO APPLICATION SETUP AND LOOP FUNCTIONS
@@ -172,11 +173,6 @@ float reading1;
 float reading2;
 uint16_t slice;
 
-uint8_t status;
-
-uint8 testData12[] = {1,2,3,4,5,6,7,8,9,10,11,12};
-uint8 testData4[] = {1,2,3,4};
-
 // main application loop
 void loop() {
     // keep polling for new data from BLE
@@ -184,6 +180,9 @@ void loop() {
     
     if (booted && millis() > timeout) {
         timeout += 1000;
+        
+        Serial.println();
+        Serial.println(isBusy);
       
         if (accel.available()) {
             // First, use accel.read() to read the new variables:
@@ -194,9 +193,8 @@ void loop() {
             accelData[2] = accel.cz;
     
             Serial.println("Sending acceleration data");
-            ble112.ble_cmd_attributes_write(GATT_HANDLE_ACCELEROMETER, 0, 12, (uint8*) testData12);
-//            while ((status = ble112.checkActivity(1000)));
-            delay(10);
+            ble112.ble_cmd_attributes_write(GATT_HANDLE_ACCELEROMETER, 0, 12, (uint8*) accelData);
+            while (ble112.checkActivity(1000));
         }
         
         reading1 = analogRead(ORAL_THERMOMETER_PIN) / 1024.0;
@@ -204,14 +202,12 @@ void loop() {
         
         // write offset is set to 1 to keep preset initial flags byte
         Serial.println("Sending oral thermometer data");
-        ble112.ble_cmd_attributes_write(GATT_HANDLE_ORAL_THERMOMETER, 1, 4, (uint8*) testData4);
-//        while ((status = ble112.checkActivity(1000)));
-        delay(10);
+        ble112.ble_cmd_attributes_write(GATT_HANDLE_ORAL_THERMOMETER, 1, 4, (uint8*) &reading1);
+        while (ble112.checkActivity(1000));
         
         Serial.println("Sending surface thermometer data");
-        ble112.ble_cmd_attributes_write(GATT_HANDLE_SURFACE_THERMOMETER, 1, 4, (uint8*) testData4);
-//        while ((status = ble112.checkActivity(1000)));
-        delay(10);
+        ble112.ble_cmd_attributes_write(GATT_HANDLE_SURFACE_THERMOMETER, 1, 4, (uint8*) &reading2);
+        while (ble112.checkActivity(1000));
     }
     
     
@@ -251,12 +247,14 @@ void bleReset() {
 void onBusy() {
     // turn LED on when we're busy
     //digitalWrite(LED_PIN, HIGH);
+    isBusy = true;
 }
 
 // called when the module receives a complete response or "system_boot" event
 void onIdle() {
     // turn LED off when we're no longer busy
     //digitalWrite(LED_PIN, LOW);
+    isBusy = false;
 }
 
 void onTimeout() {
@@ -277,7 +275,7 @@ void onBeforeTXCommand() {
     }
 
     // give a bit of a gap between parsing the wake-up event and allowing the command to go out
-    delayMicroseconds(10000); // increased to 10ms to make more reliable
+    delayMicroseconds(50000); // increased to 10ms to make more reliable
 }
 
 // called immediately after finishing UART TX
