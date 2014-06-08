@@ -162,8 +162,8 @@ void setup() {
     pinMode(BLE_RESET_PIN, OUTPUT);
     bleReset();
 
-    pinMode(7, INPUT);
     pinMode(8, OUTPUT);
+    digitalWrite(8, LOW);
     
     // configure wakeup pin
     pinMode(2, INPUT_PULLUP);
@@ -206,13 +206,18 @@ void loop() {
 }
 
 void sleep() {
+    Serial.println("Going to sleep");
+    while(digitalRead(2) == LOW);
+    digitalWrite(LED_PIN, LOW);
     attachInterrupt(0, wakeUp, LOW);
+    digitalWrite(8, HIGH); // Set CTS -> HIGH to prevent incoming data
     LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
 }
 
 void wakeUp() {
     detachInterrupt(0);
     Serial.println("wakeUp");
+    digitalWrite(8, LOW); // Set CTS -> LOW to accept incoming data
 }
 
 void bleReset() {
@@ -352,10 +357,7 @@ void my_ble_evt_system_boot(const ble_msg_system_boot_evt_t *msg) {
     ble_state = BLE_STATE_ADVERTISING;
     
     booted = true;
-    Serial.println("Ready, now going to sleep");
-    while(digitalRead(2) == LOW);
-    delay(1000);
-    digitalWrite(LED_PIN, LOW);
+    Serial.println("Ready");
     sleep();
 }
 
