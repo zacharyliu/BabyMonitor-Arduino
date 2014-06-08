@@ -277,7 +277,7 @@ void onBeforeTXCommand() {
     }
 
     // give a bit of a gap between parsing the wake-up event and allowing the command to go out
-    delayMicroseconds(1000);
+    delayMicroseconds(10000); // increased to 10ms to make more reliable
 }
 
 // called immediately after finishing UART TX
