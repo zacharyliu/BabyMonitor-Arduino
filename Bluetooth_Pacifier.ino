@@ -94,8 +94,8 @@ uint8_t ble_bonding = 0xFF; // 0xFF = no bonding, otherwise = bonding handle
 #define GATT_HANDLE_C_TX_DATA   20  // 0x14, supports "read" and "indicate" operations
 
 #define GATT_HANDLE_ACCELEROMETER        17
-#define GATT_HANDLE_ORAL_THERMOMETER     22
-#define GATT_HANDLE_SURFACE_THERMOMETER  27
+#define GATT_HANDLE_ORAL_THERMOMETER     21
+#define GATT_HANDLE_SURFACE_THERMOMETER  25
 
 #define ORAL_THERMOMETER_PIN     A0
 #define SURFACE_THERMOMETER_PIN  A1
@@ -177,40 +177,6 @@ uint16_t slice;
 void loop() {
     // keep polling for new data from BLE
     ble112.checkActivity();
-    
-    if (booted && millis() > timeout) {
-        timeout += 1000;
-        
-        Serial.println();
-        Serial.println(isBusy);
-      
-        if (accel.available()) {
-            // First, use accel.read() to read the new variables:
-            accel.read();
-            
-            accelData[0] = accel.cx;
-            accelData[1] = accel.cy;
-            accelData[2] = accel.cz;
-    
-            Serial.println("Sending acceleration data");
-            ble112.ble_cmd_attributes_write(GATT_HANDLE_ACCELEROMETER, 0, 12, (uint8*) accelData);
-            while (ble112.checkActivity(1000));
-        }
-        
-        reading1 = analogRead(ORAL_THERMOMETER_PIN) / 1024.0;
-        reading2 = analogRead(SURFACE_THERMOMETER_PIN) / 1024.0;
-        
-        // write offset is set to 1 to keep preset initial flags byte
-        Serial.println("Sending oral thermometer data");
-        ble112.ble_cmd_attributes_write(GATT_HANDLE_ORAL_THERMOMETER, 1, 4, (uint8*) &reading1);
-        while (ble112.checkActivity(1000));
-        
-        Serial.println("Sending surface thermometer data");
-        ble112.ble_cmd_attributes_write(GATT_HANDLE_SURFACE_THERMOMETER, 1, 4, (uint8*) &reading2);
-        while (ble112.checkActivity(1000));
-    }
-    
-    
 
     // blink Arduino LED based on state:
     //  - solid = STANDBY
@@ -475,8 +441,31 @@ void my_ble_evt_attributes_value(const struct ble_msg_attributes_value_evt_t *ms
 }
 
 void my_ble_evt_attributes_user_read_request(const struct ble_msg_attributes_user_read_request_evt_t *msg) {
-    uint8 data[] = {(uint8) digitalRead(7)};
-    ble112.ble_cmd_attributes_user_read_response(msg -> connection, 0, 1, data);
+    switch (msg -> handle) {
+        case GATT_HANDLE_ACCELEROMETER:
+            if (accel.available()) {
+                accel.read();
+                accelData[0] = accel.cx;
+                accelData[1] = accel.cy;
+                accelData[2] = accel.cz;
+            }
+            Serial.println("Sending acceleration data");
+            ble112.ble_cmd_attributes_user_read_response(msg -> connection, 0, 12, (uint8*) accelData);
+            while (ble112.checkActivity(1000));
+            break;
+        case GATT_HANDLE_ORAL_THERMOMETER:
+            reading1 = analogRead(ORAL_THERMOMETER_PIN) / 1024.0;
+            Serial.println("Sending oral thermometer data");
+            ble112.ble_cmd_attributes_user_read_response(msg -> connection, 0, 4, (uint8*) &reading1);
+            while (ble112.checkActivity(1000));
+            break;
+        case GATT_HANDLE_SURFACE_THERMOMETER:
+            reading2 = analogRead(SURFACE_THERMOMETER_PIN) / 1024.0;
+            Serial.println("Sending surface thermometer data");
+            ble112.ble_cmd_attributes_user_read_response(msg -> connection, 0, 4, (uint8*) &reading2);
+            while (ble112.checkActivity(1000));
+            break;
+    }
 }
 
 void my_ble_rsp_attributes_write(const struct ble_msg_attributes_write_rsp_t * msg) {
