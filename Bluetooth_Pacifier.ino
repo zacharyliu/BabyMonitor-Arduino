@@ -49,13 +49,14 @@ THE SOFTWARE.
 #include <SoftwareSerial.h>
 #include "BGLib.h"
 
+// accelerometer includes
 #include <Wire.h> // Must include Wire library for I2C
 #include <SFE_MMA8452Q.h> // Includes the SFE_MMA8452Q library
 MMA8452Q accel;
-float accelData[12];
+float accelData[3];
 
 // uncomment the following line for debug serial output
-#define DEBUG
+//#define DEBUG
 
 // ================================================================
 // BLE STATE TRACKING (UNIVERSAL TO JUST ABOUT ANY BLE PROJECT)
@@ -92,6 +93,13 @@ uint8_t ble_bonding = 0xFF; // 0xFF = no bonding, otherwise = bonding handle
 #define GATT_HANDLE_C_RX_DATA   17  // 0x11, supports "write" operation
 #define GATT_HANDLE_C_TX_DATA   20  // 0x14, supports "read" and "indicate" operations
 
+#define GATT_HANDLE_ACCELEROMETER        17
+#define GATT_HANDLE_ORAL_THERMOMETER     22
+#define GATT_HANDLE_SURFACE_THERMOMETER  27
+
+#define ORAL_THERMOMETER_PIN     A0
+#define SURFACE_THERMOMETER_PIN  A1
+
 // use SoftwareSerial on pins D2/D3 for RX/TX (Arduino side)
 SoftwareSerial bleSerialPort(2, 3);
 
@@ -100,10 +108,11 @@ SoftwareSerial bleSerialPort(2, 3);
 //  - use nothing for passthrough comms (0 = null pointer)
 //  - enable packet mode on API protocol since flow control is unavailable
 BGLib ble112((HardwareSerial *)&bleSerialPort, 0, 1);
+//BGLib ble112((HardwareSerial *)&Serial, 0, 1);
 
 #define BGAPI_GET_RESPONSE(v, dType) dType *v = (dType *)ble112.getLastRXPayload()
 
-
+unsigned long timeout;
 
 // ================================================================
 // ARDUINO APPLICATION SETUP AND LOOP FUNCTIONS
@@ -135,16 +144,16 @@ void setup() {
     ble112.ble_evt_connection_disconnected = my_ble_evt_connection_disconnect;
     ble112.ble_evt_attributes_value = my_ble_evt_attributes_value;
     ble112.ble_evt_attributes_user_read_request = my_ble_evt_attributes_user_read_request;
+    ble112.ble_rsp_attributes_write = my_ble_rsp_attributes_write;
 
     // open Arduino USB serial (and wait, if we're using Leonardo)
     // use 38400 since it works at 8MHz as well as 16MHz
-    Serial.begin(38400);
-    while (!Serial);
-    Serial.println("Starting up");
+//    Serial.begin(38400);
+    Serial.begin(19200);
+//    while (!Serial);
 
     // open BLE software serial port
     bleSerialPort.begin(19200);
-    Serial.println("Opened BLE port");
     
     // initialize BLE reset pin (active-low)
     pinMode(BLE_RESET_PIN, OUTPUT);
@@ -154,21 +163,56 @@ void setup() {
     pinMode(8, OUTPUT);
     
     accel.init();
+    
+    timeout = millis() + 2000;
 }
+
+float reading1;
+float reading2;
+uint16_t slice;
 
 // main application loop
 void loop() {
     // keep polling for new data from BLE
     ble112.checkActivity();
+    
+    if (millis() > timeout) {
+        timeout += 3000;
+      
+        if (accel.available()) {
+            // First, use accel.read() to read the new variables:
+            accel.read();
+            
+            accelData[0] = accel.cx;
+            accelData[1] = accel.cy;
+            accelData[2] = accel.cz;
+    
+            delay(1);
+            ble112.ble_cmd_attributes_write(GATT_HANDLE_ACCELEROMETER, 0, 12, (uint8*) accelData);
+            delay(1);
+        }
+        
+        reading1 = analogRead(ORAL_THERMOMETER_PIN) / 1024.0;
+        reading2 = analogRead(SURFACE_THERMOMETER_PIN) / 1024.0;
+        
+        // write offset is set to 1 to keep preset initial flags byte
+        delay(1);
+        ble112.ble_cmd_attributes_write(GATT_HANDLE_ORAL_THERMOMETER, 0, 4, (uint8*) &reading1);
+        delay(1);
+        ble112.ble_cmd_attributes_write(GATT_HANDLE_SURFACE_THERMOMETER, 0, 4, (uint8*) &reading2);
+        delay(1);
+    }
+    
+    
 
     // blink Arduino LED based on state:
     //  - solid = STANDBY
     //  - 1 pulse per second = ADVERTISING
     //  - 2 pulses per second = CONNECTED_SLAVE
     //  - 3 pulses per second = CONNECTED_SLAVE with encryption
-    uint16_t slice = millis() % 1000;
+    slice = millis() % 1000;
     if (ble_state == BLE_STATE_STANDBY) {
-        digitalWrite(LED_PIN, HIGH);
+        digitalWrite(LED_PIN, slice < 900);
     } else if (ble_state == BLE_STATE_ADVERTISING) {
         digitalWrite(LED_PIN, slice < 100);
     } else if (ble_state == BLE_STATE_CONNECTED_SLAVE) {
@@ -177,26 +221,6 @@ void loop() {
         } else {
             digitalWrite(LED_PIN, slice < 100 || (slice > 200 && slice < 300) || (slice > 400 && slice < 500));
         }
-    }
-    
-    // ###############
-    // #accelerometer#
-    // ###############
-    if (accel.available()) {
-        // First, use accel.read() to read the new variables:
-        accel.read();
-        
-        accelData[0] = 123.456;//accel.cx;
-        accelData[1] = 12.3456;//accel.cy;
-        accelData[2] = 1.23456;//accel.cz;
-
-          byte* accelDataBytes = (byte*) accelData;
-          for (int i=0; i<sizeof(accelDataBytes); i++) {
-             Serial.print(accelDataBytes[i], HEX);
-          }
-          Serial.println();
-
-          ble112.ble_cmd_attributes_write(17,0,12,(uint8*) accelData);
     }
 }
 
@@ -309,7 +333,7 @@ void my_ble_evt_system_boot(const ble_msg_system_boot_evt_t *msg) {
 
     // get BLE MAC address
     ble112.ble_cmd_system_address_get();
-    while (ble112.checkActivity(1000));
+    while (ble112.checkActivity(1000)); /// ***** TIMING OUT HERE WITH HARDWARESERIAL? ***** // digitalWrite(LED_PIN, LOW);
     BGAPI_GET_RESPONSE(r0, ble_msg_system_address_get_rsp_t);
 
     // assign last three bytes of MAC address to ad packet friendly name (instead of 00:00:00 above)
@@ -426,7 +450,6 @@ void my_ble_evt_attributes_value(const struct ble_msg_attributes_value_evt_t *ms
 
     // check for data written to "c_rx_data" handle
     if (msg -> handle == GATT_HANDLE_C_RX_DATA && msg -> value.len > 0) {
-      Serial.println(msg -> value.data[0] & 0x01);
         // set ping 8, 9, and 10 to three lower-most bits of first byte of RX data
         // (nice for controlling RGB LED or something)
         digitalWrite(8, msg -> value.data[0] & 0x01);
@@ -436,6 +459,11 @@ void my_ble_evt_attributes_value(const struct ble_msg_attributes_value_evt_t *ms
 }
 
 void my_ble_evt_attributes_user_read_request(const struct ble_msg_attributes_user_read_request_evt_t *msg) {
-  uint8 data[] = {(uint8) digitalRead(7)};
-  ble112.ble_cmd_attributes_user_read_response(msg -> connection, 0, 1, data);
+    uint8 data[] = {(uint8) digitalRead(7)};
+    ble112.ble_cmd_attributes_user_read_response(msg -> connection, 0, 1, data);
+}
+
+void my_ble_rsp_attributes_write(const struct ble_msg_attributes_write_rsp_t * msg) {
+//    Serial.print("Write result: ");
+//    Serial.println(msg -> result, HEX);
 }
