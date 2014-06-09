@@ -99,7 +99,7 @@ uint8_t ble_bonding = 0xFF; // 0xFF = no bonding, otherwise = bonding handle
 #define SURFACE_THERMOMETER_PIN  A1
 
 // use SoftwareSerial on pins D2/D3 for RX/TX (Arduino side)
-SoftwareSerial bleSerialPort(3, 4);
+SoftwareSerial bleSerialPort(4, 7);
 
 // create BGLib object:
 //  - use SoftwareSerial port for module comms
