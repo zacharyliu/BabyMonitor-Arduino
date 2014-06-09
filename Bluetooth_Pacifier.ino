@@ -91,9 +91,6 @@ uint8_t ble_bonding = 0xFF; // 0xFF = no bonding, otherwise = bonding handle
 #define BLE_WAKEUP_PIN  5   // BLE wake-up pin
 #define BLE_RESET_PIN   6   // BLE reset pin (active-low)
 
-#define GATT_HANDLE_C_RX_DATA   17  // 0x11, supports "write" operation
-#define GATT_HANDLE_C_TX_DATA   20  // 0x14, supports "read" and "indicate" operations
-
 #define GATT_HANDLE_ACCELEROMETER        17
 #define GATT_HANDLE_ORAL_THERMOMETER     21
 #define GATT_HANDLE_SURFACE_THERMOMETER  25
@@ -105,7 +102,7 @@ uint8_t ble_bonding = 0xFF; // 0xFF = no bonding, otherwise = bonding handle
 SoftwareSerial bleSerialPort(3, 4);
 
 // create BGLib object:
-//  - use SoftwareSerial por for module comms
+//  - use SoftwareSerial port for module comms
 //  - use nothing for passthrough comms (0 = null pointer)
 //  - enable packet mode on API protocol since flow control is unavailable
 BGLib ble112((HardwareSerial *)&bleSerialPort, 0, 1);
@@ -113,9 +110,11 @@ BGLib ble112((HardwareSerial *)&bleSerialPort, 0, 1);
 
 //#define BGAPI_GET_RESPONSE(v, dType) dType *v = (dType *)ble112.getLastRXPayload()
 
-unsigned long timeout;
 boolean booted = false;
-boolean isBusy = false;
+float reading1;
+float reading2;
+uint16_t slice;
+unsigned long wakeUpTime = millis();
 
 // ================================================================
 // ARDUINO APPLICATION SETUP AND LOOP FUNCTIONS
@@ -131,9 +130,7 @@ void setup() {
     pinMode(BLE_WAKEUP_PIN, OUTPUT);
     digitalWrite(BLE_WAKEUP_PIN, LOW);
 
-    // set up internal status handlers (these are technically optional)
-    ble112.onBusy = onBusy;
-    ble112.onIdle = onIdle;
+    // set up internal status handlers
     ble112.onTimeout = onTimeout;
 
     // ONLY enable these if you are using the <wakeup_pin> parameter in your firmware's hardware.xml file
@@ -147,13 +144,11 @@ void setup() {
     ble112.ble_evt_connection_disconnected = my_ble_evt_connection_disconnect;
     ble112.ble_evt_attributes_value = my_ble_evt_attributes_value;
     ble112.ble_evt_attributes_user_read_request = my_ble_evt_attributes_user_read_request;
-    ble112.ble_rsp_attributes_write = my_ble_rsp_attributes_write;
 
-    // open Arduino USB serial (and wait, if we're using Leonardo)
-    // use 38400 since it works at 8MHz as well as 16MHz
-//    Serial.begin(38400);
-    Serial.begin(19200);
-//    while (!Serial);
+    // open Arduino USB serial
+    #ifdef DEBUG
+        Serial.begin(19200);
+    #endif
 
     // open BLE software serial port
     bleSerialPort.begin(19200);
@@ -165,93 +160,76 @@ void setup() {
     pinMode(8, OUTPUT);
     digitalWrite(8, LOW);
     
+    pinMode(12, OUTPUT);
+    
     // configure wakeup pin
     pinMode(2, INPUT_PULLUP);
     
     accel.init();
-    
-    timeout = millis() + 1000;
 }
-
-float reading1;
-float reading2;
-uint16_t slice;
 
 // main application loop
 void loop() {
     // keep polling for new data from BLE
     ble112.checkActivity();
-
-    // blink Arduino LED based on state:
-    //  - solid = STANDBY
-    //  - 1 pulse per second = ADVERTISING
-    //  - 2 pulses per second = CONNECTED_SLAVE
-    //  - 3 pulses per second = CONNECTED_SLAVE with encryption
-    slice = millis() % 1000;
-    if (ble_state == BLE_STATE_STANDBY) {
-        digitalWrite(LED_PIN, slice < 900);
-    } else if (ble_state == BLE_STATE_ADVERTISING) {
-        digitalWrite(LED_PIN, slice < 100);
-    } else if (ble_state == BLE_STATE_CONNECTED_SLAVE) {
-        if (!ble_encrypted) {
-            digitalWrite(LED_PIN, slice < 100 || (slice > 200 && slice < 300));
-        } else {
-            digitalWrite(LED_PIN, slice < 100 || (slice > 200 && slice < 300) || (slice > 400 && slice < 500));
-        }
-    }
     
-    if (booted) {
-//        sleep();
-    }
+    if (booted && millis() > wakeUpTime + 50) sleep();
 }
 
 void sleep() {
-    Serial.println("Going to sleep");
-    while(digitalRead(2) == LOW);
+    #ifdef DEBUG
+        Serial.println("Going to sleep");
+        Serial.println();
+        // finish sending any queued serial messages
+        Serial.flush();
+    #endif
+    
+    // wait for interrupt pin to reset to normal state
+    while (digitalRead(2) == LOW);
+    
+    // power down components
     digitalWrite(LED_PIN, LOW);
+    
+    // set flow control CTS -> HIGH to prevent incoming data
+    digitalWrite(8, HIGH);
+    
+    // power down with wakeup interrupt
     attachInterrupt(0, wakeUp, LOW);
-    digitalWrite(8, HIGH); // Set CTS -> HIGH to prevent incoming data
     LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
 }
 
 void wakeUp() {
+    #ifdef DEBUG
+        Serial.println("Waking up");
+    #endif
+    
+    // remove interrupt
     detachInterrupt(0);
-    Serial.println("wakeUp");
-    digitalWrite(8, LOW); // Set CTS -> LOW to accept incoming data
+    
+    // set CTS -> LOW to accept incoming data
+    digitalWrite(8, LOW);
+    
+    // set time reference
+    wakeUpTime = millis();
 }
 
+
+// Toggle reset pin to reset BLE112 chip
 void bleReset() {
-  digitalWrite(BLE_RESET_PIN, LOW);
+    digitalWrite(BLE_RESET_PIN, LOW);
     delay(5); // wait 5ms
     digitalWrite(BLE_RESET_PIN, HIGH);
 }
 
-
-// ================================================================
-// INTERNAL BGLIB CLASS CALLBACK FUNCTIONS
-// ================================================================
-
-// called when the module begins sending a command
-void onBusy() {
-    // turn LED on when we're busy
-    //digitalWrite(LED_PIN, HIGH);
-    isBusy = true;
-}
-
-// called when the module receives a complete response or "system_boot" event
-void onIdle() {
-    // turn LED off when we're no longer busy
-    //digitalWrite(LED_PIN, LOW);
-    isBusy = false;
-}
-
 void onTimeout() {
-    Serial.println("!!!\tTimeout occurred!");
+    #ifdef DEBUG
+        Serial.println("!!!\tTimeout occurred!");
+    #endif
 }
 
 // called immediately before beginning UART TX of a command
 void onBeforeTXCommand() {
-    // wake module up (assuming here that digital pin 5 is connected to the BLE wake-up pin)
+    // wake module up
     digitalWrite(BLE_WAKEUP_PIN, HIGH);
 
     // wait for "hardware_io_port_status" event to come through, and parse it (and otherwise ignore it)
@@ -263,12 +241,12 @@ void onBeforeTXCommand() {
     }
 
     // give a bit of a gap between parsing the wake-up event and allowing the command to go out
-    delayMicroseconds(50000); // increased to 10ms to make more reliable
+    delayMicroseconds(50000); // increased to 50ms to make more reliable
 }
 
 // called immediately after finishing UART TX
 void onTXCommandComplete() {
-    // allow module to return to sleep (assuming here that digital pin 5 is connected to the BLE wake-up pin)
+    // allow module to return to sleep
     digitalWrite(BLE_WAKEUP_PIN, LOW);
 }
 
@@ -357,8 +335,10 @@ void my_ble_evt_system_boot(const ble_msg_system_boot_evt_t *msg) {
     ble_state = BLE_STATE_ADVERTISING;
     
     booted = true;
-    Serial.println("Ready");
-    sleep();
+    
+    #ifdef DEBUG
+        Serial.println("Ready");
+    #endif
 }
 
 void my_ble_evt_connection_status(const ble_msg_connection_status_evt_t *msg) {
@@ -452,15 +432,6 @@ void my_ble_evt_attributes_value(const struct ble_msg_attributes_value_evt_t *ms
         }
         Serial.println(" }");
     #endif
-
-    // check for data written to "c_rx_data" handle
-    if (msg -> handle == GATT_HANDLE_C_RX_DATA && msg -> value.len > 0) {
-        // set ping 8, 9, and 10 to three lower-most bits of first byte of RX data
-        // (nice for controlling RGB LED or something)
-        digitalWrite(8, msg -> value.data[0] & 0x01);
-        digitalWrite(9, msg -> value.data[0] & 0x02);
-        digitalWrite(10, msg -> value.data[0] & 0x04);
-    }
 }
 
 void my_ble_evt_attributes_user_read_request(const struct ble_msg_attributes_user_read_request_evt_t *msg) {
@@ -472,26 +443,29 @@ void my_ble_evt_attributes_user_read_request(const struct ble_msg_attributes_use
                 accelData[1] = accel.cy;
                 accelData[2] = accel.cz;
             }
-            Serial.println("Sending acceleration data");
+            #ifdef DEBUG
+                Serial.print("Sending acceleration data...");
+            #endif
             ble112.ble_cmd_attributes_user_read_response(msg -> connection, 0, 12, (uint8*) accelData);
-            while (ble112.checkActivity(1000));
             break;
         case GATT_HANDLE_ORAL_THERMOMETER:
             reading1 = analogRead(ORAL_THERMOMETER_PIN) / 1024.0;
-            Serial.println("Sending oral thermometer data");
+            #ifdef DEBUG
+                Serial.print("Sending oral thermometer data...");
+            #endif
             ble112.ble_cmd_attributes_user_read_response(msg -> connection, 0, 4, (uint8*) &reading1);
-            while (ble112.checkActivity(1000));
             break;
         case GATT_HANDLE_SURFACE_THERMOMETER:
             reading2 = analogRead(SURFACE_THERMOMETER_PIN) / 1024.0;
-            Serial.println("Sending surface thermometer data");
+            #ifdef DEBUG
+                Serial.print("Sending surface thermometer data...");
+            #endif
             ble112.ble_cmd_attributes_user_read_response(msg -> connection, 0, 4, (uint8*) &reading2);
-            while (ble112.checkActivity(1000));
             break;
     }
+    while (ble112.checkActivity(1000));
+    #ifdef DEBUG
+        Serial.println("done");
+    #endif
 }
 
-void my_ble_rsp_attributes_write(const struct ble_msg_attributes_write_rsp_t * msg) {
-    Serial.print("Write result: ");
-    Serial.println(msg -> result, HEX);
-}
