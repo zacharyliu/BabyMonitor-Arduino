@@ -50,6 +50,9 @@ THE SOFTWARE.
 #include "BGLib.h"
 #include "LowPower.h"
 
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
 // accelerometer includes
 #include <Wire.h> // Must include Wire library for I2C
 #include <SFE_MMA8452Q.h> // Includes the SFE_MMA8452Q library
@@ -95,7 +98,12 @@ uint8_t ble_bonding = 0xFF; // 0xFF = no bonding, otherwise = bonding handle
 #define GATT_HANDLE_ORAL_THERMOMETER     21
 #define GATT_HANDLE_SURFACE_THERMOMETER  25
 
-#define ORAL_THERMOMETER_PIN     A0
+#define ONE_WIRE_BUS 3
+// Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
+OneWire oneWire(ONE_WIRE_BUS);
+// Pass our oneWire reference to Dallas Temperature. 
+DallasTemperature sensors(&oneWire);
+
 #define SURFACE_THERMOMETER_PIN  A1
 
 // use SoftwareSerial on pins D2/D3 for RX/TX (Arduino side)
@@ -166,6 +174,8 @@ void setup() {
     pinMode(2, INPUT_PULLUP);
     
     accel.init();
+    
+    sensors.begin();
 }
 
 // main application loop
@@ -281,8 +291,9 @@ void my_ble_evt_system_boot(const ble_msg_system_boot_evt_t *msg) {
     // USE THE FOLLOWING TO LET THE BLE STACK HANDLE YOUR ADVERTISEMENT PACKETS
     // ========================================================================
     // start advertising general discoverable / undirected connectable
-    //ble112.ble_cmd_gap_set_mode(BGLIB_GAP_GENERAL_DISCOVERABLE, BGLIB_GAP_UNDIRECTED_CONNECTABLE);
-    //while (ble112.checkActivity(1000));
+    ble112.ble_cmd_gap_set_mode(BGLIB_GAP_GENERAL_DISCOVERABLE, BGLIB_GAP_UNDIRECTED_CONNECTABLE);
+    while (ble112.checkActivity(1000));
+    return;
 
     // USE THE FOLLOWING TO HANDLE YOUR OWN CUSTOM ADVERTISEMENT PACKETS
     // =================================================================
@@ -449,7 +460,8 @@ void my_ble_evt_attributes_user_read_request(const struct ble_msg_attributes_use
             ble112.ble_cmd_attributes_user_read_response(msg -> connection, 0, 12, (uint8*) accelData);
             break;
         case GATT_HANDLE_ORAL_THERMOMETER:
-            reading1 = analogRead(ORAL_THERMOMETER_PIN) / 1024.0;
+            sensors.requestTemperatures();
+            reading1 = sensors.getTempCByIndex(0);
             #ifdef DEBUG
                 Serial.print("Sending oral thermometer data...");
             #endif
