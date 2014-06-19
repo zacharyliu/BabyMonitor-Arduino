@@ -1,27 +1,3 @@
-// Bluegiga BGLib Arduino interface library slave device stub sketch
-// 2014-02-12 by Jeff Rowberg <jeff@rowberg.net>
-// Updates should (hopefully) always be available at https://github.com/jrowberg/bglib
-
-// Changelog:
-//      2014-02-12 - Fixed compile problem from missing constants
-//      2013-03-17 - Initial release
-
-/* ============================================
-   !!!!!!!!!!!!!!!!!
-   !!! IMPORTANT !!!
-   !!!!!!!!!!!!!!!!!
-
-   THIS SCRIPT WILL NOT COMMUNICATE PROPERLY IF YOU DO NOT ENSURE ONE OF THE
-   FOLLOWING IS TRUE:
-
-   1. You enable the <wakeup_pin> functionality in your firmware
-
-   2. You COMMENT OUT the two lines 128 and 129 below which depend on wake-up
-      funcitonality to work properly (they will BLOCK otherwise):
-
-          ble112.onBeforeTXCommand = onBeforeTXCommand;
-          ble112.onTXCommandComplete = onTXCommandComplete;
-
 /* ============================================
 BGLib Arduino interface library code is placed under the MIT license
 Copyright (c) 2014 Jeff Rowberg
@@ -293,63 +269,6 @@ void my_ble_evt_system_boot(const ble_msg_system_boot_evt_t *msg) {
     // start advertising general discoverable / undirected connectable
     ble112.ble_cmd_gap_set_mode(BGLIB_GAP_GENERAL_DISCOVERABLE, BGLIB_GAP_UNDIRECTED_CONNECTABLE);
     while (ble112.checkActivity(1000));
-    return;
-
-    // USE THE FOLLOWING TO HANDLE YOUR OWN CUSTOM ADVERTISEMENT PACKETS
-    // =================================================================
-
-    // build custom advertisement data
-    // default BLE stack value: 0201061107e4ba94c3c9b7cdb09b487a438ae55a19
-    uint8 adv_data[] = {
-        0x02, // field length
-        BGLIB_GAP_AD_TYPE_FLAGS, // field type (0x01)
-        0x06, // data (0x02 | 0x04 = 0x06, general discoverable + BLE only, no BR+EDR)
-        0x11, // field length
-        BGLIB_GAP_AD_TYPE_SERVICES_128BIT_ALL, // field type (0x07)
-        0xe4, 0xba, 0x94, 0xc3, 0xc9, 0xb7, 0xcd, 0xb0, 0x9b, 0x48, 0x7a, 0x43, 0x8a, 0xe5, 0x5a, 0x19
-    };
-
-    // set custom advertisement data
-    ble112.ble_cmd_gap_set_adv_data(0, 0x15, adv_data);
-    while (ble112.checkActivity(1000));
-
-    // build custom scan response data (i.e. the Device Name value)
-    // default BLE stack value: 140942474c69622055314131502033382e344e4657
-    uint8 sr_data[] = {
-        0x14, // field length
-        BGLIB_GAP_AD_TYPE_LOCALNAME_COMPLETE, // field type
-        'M', 'y', ' ', 'A', 'r', 'd', 'u', 'i', 'n', 'o', ' ', '0', '0', ':', '0', '0', ':', '0', '0'
-    };
-
-//    // get BLE MAC address
-//    ble112.ble_cmd_system_address_get();
-//    while (ble112.checkActivity(1000)); /// ***** TIMING OUT HERE WITH HARDWARESERIAL? ***** // digitalWrite(LED_PIN, LOW);
-//    BGAPI_GET_RESPONSE(r0, ble_msg_system_address_get_rsp_t);
-//
-//    // assign last three bytes of MAC address to ad packet friendly name (instead of 00:00:00 above)
-//    sr_data[13] = (r0 -> address.addr[2] / 0x10) + 48 + ((r0 -> address.addr[2] / 0x10) / 10 * 7); // MAC byte 4 10's digit
-//    sr_data[14] = (r0 -> address.addr[2] & 0xF)  + 48 + ((r0 -> address.addr[2] & 0xF ) / 10 * 7); // MAC byte 4 1's digit
-//    sr_data[16] = (r0 -> address.addr[1] / 0x10) + 48 + ((r0 -> address.addr[1] / 0x10) / 10 * 7); // MAC byte 5 10's digit
-//    sr_data[17] = (r0 -> address.addr[1] & 0xF)  + 48 + ((r0 -> address.addr[1] & 0xF ) / 10 * 7); // MAC byte 5 1's digit
-//    sr_data[19] = (r0 -> address.addr[0] / 0x10) + 48 + ((r0 -> address.addr[0] / 0x10) / 10 * 7); // MAC byte 6 10's digit
-//    sr_data[20] = (r0 -> address.addr[0] & 0xF)  + 48 + ((r0 -> address.addr[0] & 0xF ) / 10 * 7); // MAC byte 6 1's digit
-
-    // set custom scan response data (i.e. the Device Name value)
-    ble112.ble_cmd_gap_set_adv_data(1, 0x15, sr_data);
-    while (ble112.checkActivity(1000));
-
-    // put module into discoverable/connectable mode (with user-defined advertisement data)
-    ble112.ble_cmd_gap_set_mode(BGLIB_GAP_USER_DATA, BGLIB_GAP_UNDIRECTED_CONNECTABLE);
-    while (ble112.checkActivity(1000));
-
-    // set state to ADVERTISING
-    ble_state = BLE_STATE_ADVERTISING;
-    
-    booted = true;
-    
-    #ifdef DEBUG
-        Serial.println("Ready");
-    #endif
 }
 
 void my_ble_evt_connection_status(const ble_msg_connection_status_evt_t *msg) {
